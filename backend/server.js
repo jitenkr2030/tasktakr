@@ -21,10 +21,27 @@ app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
 
-// Database connection
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/tasktakr')
-  .then(() => console.log('Connected to MongoDB'))
-  .catch(err => console.error('MongoDB connection error:', err));
+// Database connection with improved options for serverless environment
+const connectDB = async () => {
+  try {
+    const mongoOptions = {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+      family: 4
+    };
+
+    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/tasktakr', mongoOptions);
+    console.log('Connected to MongoDB');
+  } catch (err) {
+    console.error('MongoDB connection error:', err);
+    process.exit(1);
+  }
+};
+
+// Initialize database connection
+connectDB();
 
 // Routes
 const authRoutes = require('./routes/authRoutes');
@@ -78,8 +95,39 @@ io.on('connection', (socket) => {
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ message: 'Something went wrong!' });
+  console.error('Error details:', {
+    message: err.message,
+    stack: err.stack,
+    status: err.status || 500,
+    path: req.path,
+    method: req.method
+  });
+
+  // Check if error is from MongoDB
+  if (err.name === 'MongoError' || err.name === 'MongoServerError') {
+    return res.status(503).json({
+      status: 'error',
+      message: 'Database connection error. Please try again later.',
+      error_code: 'DB_ERROR'
+    });
+  }
+
+  // Handle validation errors
+  if (err.name === 'ValidationError') {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Invalid input data',
+      errors: Object.values(err.errors).map(e => e.message),
+      error_code: 'VALIDATION_ERROR'
+    });
+  }
+
+  // Default error response
+  res.status(err.status || 500).json({
+    status: 'error',
+    message: process.env.NODE_ENV === 'production' ? 'Something went wrong' : err.message,
+    error_code: 'INTERNAL_SERVER_ERROR'
+  });
 });
 
 const PORT = process.env.PORT || 3000;
