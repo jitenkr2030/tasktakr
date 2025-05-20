@@ -17,9 +17,16 @@ const io = socketIo(server, {
 });
 
 // Middleware
-app.use(cors());
-app.use(express.json());
-app.use(morgan('dev'));
+app.use(cors({
+  origin: process.env.NODE_ENV === 'production' 
+    ? ['https://tasktakr-1r8pdtr3q-jiten-kumars-projects.vercel.app', 'https://tasktakr-backend.vercel.app']
+    : '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
+app.use(express.json({ limit: '10mb' }));
+app.use(morgan('combined'));
 
 // Database connection with improved options for serverless environment
 const connectDB = async () => {
@@ -29,19 +36,37 @@ const connectDB = async () => {
       useUnifiedTopology: true,
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
-      family: 4
+      family: 4,
+      maxPoolSize: 5,
+      retryWrites: true,
+      w: 'majority'
     };
 
-    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/tasktakr', mongoOptions);
-    console.log('Connected to MongoDB');
+    if (mongoose.connection.readyState !== 1) {
+      await mongoose.connect(process.env.MONGODB_URI, mongoOptions);
+      console.log('Connected to MongoDB');
+    }
+    return mongoose.connection;
   } catch (err) {
     console.error('MongoDB connection error:', err);
-    process.exit(1);
+    throw new Error('Database connection failed');
   }
 };
 
 // Initialize database connection
-connectDB();
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (error) {
+    console.error('Database connection middleware error:', error);
+    res.status(503).json({
+      status: 'error',
+      message: 'Database connection error. Please try again later.',
+      error_code: 'DB_CONNECTION_ERROR'
+    });
+  }
+});
 
 // Routes
 const authRoutes = require('./routes/authRoutes');
