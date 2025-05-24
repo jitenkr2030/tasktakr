@@ -6,6 +6,7 @@ const morgan = require('morgan');
 const http = require('http');
 const socketIo = require('socket.io');
 const jwt = require('jsonwebtoken');
+const connectDB = require('./config/db');
 
 const app = express();
 const server = http.createServer(app);
@@ -19,53 +20,31 @@ const io = socketIo(server, {
 // Middleware
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
-    ? ['https://tasktakr-1r8pdtr3q-jiten-kumars-projects.vercel.app', 'https://tasktakr-backend.vercel.app']
+    ? ['https://tasktakr.vercel.app', 'exp://exp.host/@jitenkumar/TaskTakr', /^exp:\/\/.*/, /^https:\/\/.*\.expo\.dev$/]
     : '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true
+  credentials: true,
+  maxAge: 86400
 }));
+
 app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(morgan('combined'));
 
-// Database connection with improved options for serverless environment
-const connectDB = async () => {
-  try {
-    const mongoOptions = {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 45000,
-      family: 4,
-      maxPoolSize: 5,
-      retryWrites: true,
-      w: 'majority'
-    };
+// Add health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV
+  });
+});
 
-    if (mongoose.connection.readyState !== 1) {
-      await mongoose.connect(process.env.MONGODB_URI, mongoOptions);
-      console.log('Connected to MongoDB');
-    }
-    return mongoose.connection;
-  } catch (err) {
-    console.error('MongoDB connection error:', err);
-    throw new Error('Database connection failed');
-  }
-};
-
-// Initialize database connection
-app.use(async (req, res, next) => {
-  try {
-    await connectDB();
-    next();
-  } catch (error) {
-    console.error('Database connection middleware error:', error);
-    res.status(503).json({
-      status: 'error',
-      message: 'Database connection error. Please try again later.',
-      error_code: 'DB_CONNECTION_ERROR'
-    });
-  }
+// Connect to MongoDB
+connectDB().catch(err => {
+  console.error('Failed to connect to MongoDB:', err);
+  process.exit(1);
 });
 
 // Routes

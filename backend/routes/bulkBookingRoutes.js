@@ -6,11 +6,11 @@ const Service = require('../models/Service');
 const Provider = require('../models/Provider');
 const multer = require('multer');
 const csv = require('csv-parser');
-const fs = require('fs');
+const { Readable } = require('stream');
 
-// Configure multer for CSV upload
+// Configure multer for CSV upload using memory storage
 const upload = multer({
-  dest: 'uploads/',
+  storage: multer.memoryStorage(),
   fileFilter: (req, file, cb) => {
     if (file.mimetype === 'text/csv') {
       cb(null, true);
@@ -42,8 +42,11 @@ router.post('/upload', auth, upload.single('file'), async (req, res) => {
     const bookings = [];
     const errors = [];
 
+    // Create readable stream from buffer
+    const stream = Readable.from(req.file.buffer.toString());
+
     // Read CSV file
-    fs.createReadStream(req.file.path)
+    stream
       .pipe(csv())
       .on('data', async (row) => {
         try {
@@ -81,9 +84,6 @@ router.post('/upload', auth, upload.single('file'), async (req, res) => {
 
           // Create all bookings
           const createdBookings = await Booking.insertMany(bookings);
-
-          // Clean up uploaded file
-          fs.unlinkSync(req.file.path);
 
           res.status(201).json({
             message: 'Bulk bookings created successfully',

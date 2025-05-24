@@ -51,8 +51,7 @@ const invoiceSchema = new mongoose.Schema({
   paidAt: Date,
   invoiceNumber: {
     type: String,
-    required: true,
-    unique: true
+    required: true
   },
   createdAt: {
     type: Date,
